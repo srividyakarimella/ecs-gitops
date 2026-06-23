@@ -53,8 +53,9 @@ resource "aws_route_table_association" "a" {
 # ------------------------
 # Security Group
 # ------------------------
-resource "aws_security_group" "sg" {
-  vpc_id = aws_vpc.main.id
+resource "aws_security_group" "alb_sg" {
+    name = "alb_sg"
+  vpc_id = var.vpc_id
 
   ingress {
     from_port   = 80
@@ -153,8 +154,8 @@ resource "aws_lb" "alb" {
   name               = "nginx-alb"
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.sg.id] # Ensure this matches your SG resource name
-  
+  security_groups    = [aws_security_group.alb_sg.id] # Ensure this matches your SG resource name
+  depends_on         = [aws_security_group.alb_sg]
   # Pass BOTH subnets here:
   subnets            = [aws_subnet.public_1.id, aws_subnet.public_2.id]
 }
@@ -164,6 +165,10 @@ resource "aws_lb" "alb" {
 # ------------------------
 resource "aws_lb_target_group" "tg" {
   name     = "nginx-tg"
+
+  lifecycle {
+    create_before_destory = true
+  }
   port     = 80
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
