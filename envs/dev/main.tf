@@ -165,10 +165,6 @@ resource "aws_lb" "alb" {
 # ------------------------
 resource "aws_lb_target_group" "tg" {
   name     = "nginx-tg"
-
-  lifecycle {
-    create_before_destroy = true
-  }
   port     = 80
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
@@ -208,7 +204,7 @@ resource "aws_ecs_service" "service" {
   network_configuration {
     subnets         = [aws_subnet.public_1.id, aws_subnet.public_2.id]
     assign_public_ip = true
-    security_groups = [aws_security_group.sg.id]
+    security_groups = [aws_security_group.alb_sg.id]
   }
 
   load_balancer {
