@@ -167,7 +167,7 @@ resource "aws_lb_target_group" "tg" {
   name     = "nginx-tg"
 
   lifecycle {
-    create_before_destory = true
+    create_before_destroy = true
   }
   port     = 80
   protocol = "HTTP"
