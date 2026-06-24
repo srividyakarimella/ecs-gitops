@@ -135,6 +135,7 @@ resource "aws_iam_role" "ecs_task_execution_role" {
       Effect = "Allow"
       Principal = {
         Service = "ecs-tasks.amazon.com"
+      }  
     }]
   })
 }
