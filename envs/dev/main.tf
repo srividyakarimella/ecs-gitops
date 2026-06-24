@@ -10,15 +10,14 @@ resource "aws_vpc" "main" {
 }
 
 # ------------------------
-# Subnet
+# Subnets
 # ------------------------
 resource "aws_subnet" "public_1" {
-  vpc_id            = aws_vpc.main.id # Ensure this matches your VPC resource name
+  vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.1.0/24"
   availability_zone = "us-east-1a"
 }
 
-# Second Subnet (e.g., in us-east-1b)
 resource "aws_subnet" "public_2" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.9.0/24"
@@ -33,7 +32,7 @@ resource "aws_internet_gateway" "gw" {
 }
 
 # ------------------------
-# Route Table
+# Route Table & Associations
 # ------------------------
 resource "aws_route_table" "rt" {
   vpc_id = aws_vpc.main.id
@@ -50,11 +49,17 @@ resource "aws_route_table_association" "a" {
   route_table_id = aws_route_table.rt.id
 }
 
+# FIX #3: Added association for public_2 so the ALB works across both subnets
+resource "aws_route_table_association" "b" {
+  subnet_id      = aws_subnet.public_2.id
+  route_table_id = aws_route_table.rt.id
+}
+
 # ------------------------
-# Security Group
+# ALB Security Group (Public)
 # ------------------------
 resource "aws_security_group" "alb_sg" {
-  name   = "alb_sg"
+  name   = "alb_sg_v3" # FIX #1: Renamed to break out of the stuck AWS state
   vpc_id = aws_vpc.main.id
 
   ingress {
@@ -64,18 +69,42 @@ resource "aws_security_group" "alb_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # FIX #2: Prevents deletion blockages during deployment updates
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# ------------------------
+# ECS Tasks Security Group (FIX #4: Dedicated group for tasks)
+# ------------------------
+resource "aws_security_group" "ecs_tasks_sg" {
+  name        = "ecs_tasks_sg"
+  vpc_id      = aws_vpc.main.id
+
   ingress {
-    from_port = 0
-    to_port   = 0
-    protocol  = "-1"
-    self      = true
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb_sg.id] # Only allows traffic from the ALB
   }
 
   egress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["0.0.0.0/0"] # Required to pull the image from ECR
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 }
 
@@ -105,7 +134,7 @@ resource "aws_iam_role" "ecs_task_execution_role" {
       Action = "sts:AssumeRole"
       Effect = "Allow"
       Principal = {
-        Service = "ecs-tasks.amazonaws.com"
+        Service = "://amazonaws.com"
       }
     }]
   })
@@ -130,7 +159,7 @@ resource "aws_ecs_task_definition" "task" {
   container_definitions = jsonencode([
     {
       name  = "nginx"
-      image = "485104726407.dkr.ecr.us-east-1.amazonaws.com/nginx-static-main1:latest"
+      image = "485104726407.dkr.ecr.us-east-1.amazonaws.com/nginx-static-main1"
       portMappings = [
         {
           containerPort = 80
@@ -147,9 +176,7 @@ resource "aws_lb" "alb" {
   name               = "nginx-alb"
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb_sg.id] # Ensure this matches your SG resource name
-  depends_on         = [aws_security_group.alb_sg]
-  # Pass BOTH subnets here:
+  security_groups    = [aws_security_group.alb_sg.id]
   subnets            = [aws_subnet.public_1.id, aws_subnet.public_2.id]
 }
 
@@ -157,10 +184,10 @@ resource "aws_lb" "alb" {
 # Target Group
 # ------------------------
 resource "aws_lb_target_group" "tg" {
-  name     = "nginx-tg"
-  port     = 80
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
+  name        = "nginx-tg"
+  port        = 80
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
   target_type = "ip"
 
   health_check {
@@ -168,7 +195,7 @@ resource "aws_lb_target_group" "tg" {
     interval            = 30
     timeout             = 5
     healthy_threshold   = 2
-    unhealthy_threshold = 5 # Gives it 5 sequential failures before killing the task
+    unhealthy_threshold = 5
     matcher             = "200-399"
   }
 }
@@ -195,9 +222,9 @@ resource "aws_ecs_service" "service" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets         = [aws_subnet.public_1.id, aws_subnet.public_2.id]
+    subnets          = [aws_subnet.public_1.id, aws_subnet.public_2.id]
     assign_public_ip = true
-    security_groups = [aws_security_group.alb_sg.id]
+    security_groups  = [aws_security_group.ecs_tasks_sg.id] # FIX #4: Points to new task SG
   }
 
   load_balancer {
@@ -207,4 +234,12 @@ resource "aws_ecs_service" "service" {
   }
 
   desired_count = 1
+}
+
+# ------------------------
+# Outputs
+# ------------------------
+output "alb_dns_name" {
+  description = "The public URL of your NGINX application"
+  value       = aws_lb.alb.dns_name
 }
