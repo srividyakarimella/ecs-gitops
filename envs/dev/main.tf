@@ -168,8 +168,9 @@ resource "aws_ecs_task_definition" "task" {
 
   container_definitions = jsonencode([
     {
-      name  = "nginx"
-      image = "485104726407.dkr.ecr.us-east-1.amazonaws.com/nginx-static-main1:latest"
+      name      = "nginx"
+      image     = "nginx:latest"  # Use public nginx instead
+      essential = true
       portMappings = [
         {
           containerPort = 80
