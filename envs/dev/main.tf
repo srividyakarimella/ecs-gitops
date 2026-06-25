@@ -156,6 +156,11 @@ resource "aws_ecs_task_definition" "task" {
   memory                   = "512"
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
 
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "X86_64"
+  }
+
   container_definitions = jsonencode([
     {
       name  = "nginx"
@@ -165,6 +170,14 @@ resource "aws_ecs_task_definition" "task" {
           containerPort = 80
         }
       ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = "/ecs/nginx"
+          "awslogs-region"        = "us-east-1"
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
     }
   ])
 }
@@ -190,6 +203,7 @@ resource "aws_lb_target_group" "tg" {
   vpc_id      = aws_vpc.main.id
   target_type = "ip"
 
+
   health_check {
     path                = "/"
     interval            = 30
@@ -201,11 +215,12 @@ resource "aws_lb_target_group" "tg" {
 }
 
 # ------------------------
-# Listener
+# Listener (FIXED : Added missing HTTP protocol)
 # ------------------------
 resource "aws_lb_listener" "listener" {
   load_balancer_arn = aws_lb.alb.arn
   port              = 80
+  protocol          = "HTTP"
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.tg.arn
